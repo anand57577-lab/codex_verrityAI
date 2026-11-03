@@ -4,6 +4,9 @@
 
 The system combines a structured PostgreSQL database, a FastAPI backend, a React frontend, and Google's Gemini AI to identify potential brand conflicts, unsupported advertising claims, and content requiring further review.
 
+**LIVE LINK** - https://brand-governace-verityai.vercel.app 
+
+
 ---
 
 ## Table of Contents
