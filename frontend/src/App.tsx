@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { NavLink, Routes, Route, useLocation } from "react-router-dom";
+import type { FormEvent } from "react";
+import {
+  NavLink,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import {
   createOrganization,
   saveGuidelines,
@@ -13,7 +21,17 @@ import {
   analyzeAdvertisement,
   getOrganization,
   buildDocumentDownloadUrl,
-  getApprovedAdvertisements
+  getApprovedAdvertisements,
+  getPendingAdvertisements,
+  updateAdvertisementReview,
+  ApiError,
+  getAuthToken,
+  getAuthUser,
+  getCurrentUser,
+  isAuthenticated,
+  loginAccount,
+  logoutAccount,
+  registerAccount,
 } from "./services/api";
 
 import * as pdfjsLib from "pdfjs-dist";
@@ -91,7 +109,7 @@ async function extractPdfText(file: File): Promise<string> {
 
 const initial: Product[] = [];
 const links = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, group: "WORKSPACE" },
+  { to: "/app", label: "Dashboard", icon: LayoutDashboard, group: "WORKSPACE" },
   {
     to: "/admin",
     label: "Organization Admin",
@@ -125,6 +143,11 @@ const links = [
   { to: "/settings", label: "Settings", icon: Settings, group: "PREFERENCES" },
 ];
 export default function App() {
+  const loc = useLocation();
+  const navigate = useNavigate();
+  const isPublicRoute = ["/", "/login", "/signup", "/register"].includes(
+    loc.pathname
+  );
   const [products, setProducts] = useState(initial),
     [org, setOrg] = useState(""),
     [brand, setBrand] = useState(""),
@@ -137,6 +160,8 @@ export default function App() {
     [findings, setFindings] = useState<Finding[] | null>(null),
     [toast, setToast] = useState(""),
     [mobile, setMobile] = useState(false);
+  const [pendingReviews, setPendingReviews] = useState<any[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
   const [approvedAds, setApprovedAds] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -150,11 +175,17 @@ export default function App() {
     const value = localStorage.getItem("verityai_brand_id");
     return value ? Number(value) : null;
   });
+  const [authStatus, setAuthStatus] = useState<
+    "checking" | "authenticated" | "unauthenticated" | "error"
+  >(() => (getAuthToken() ? "checking" : "unauthenticated"));
+  const [authError, setAuthError] = useState("");
   const [reviewDecisions, setReviewDecisions] = useState<
     Record<number, { status: "approved" | "changes_requested"; comment?: string }>
   >({});
 
   useEffect(() => {
+    if (authStatus !== "authenticated") return;
+
     let active = true;
 
     getCurrentOrganization()
@@ -188,14 +219,13 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [authStatus]);
 
 
 
 
 
 
-  const loc = useLocation();
   const page = links.find((x) => x.to === loc.pathname)?.label || "Workspace";
   const notify = (s: string) => {
     setToast(s);
@@ -203,7 +233,95 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (loc.pathname !== "/history") return;
+    if (isPublicRoute) return;
+
+    if (!getAuthToken()) {
+      setAuthStatus("unauthenticated");
+      return;
+    }
+
+    let active = true;
+    setAuthStatus("checking");
+    setAuthError("");
+
+    getCurrentUser()
+      .then(() => {
+        if (active) setAuthStatus("authenticated");
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+
+        if (error instanceof ApiError && error.status === 401) {
+          logoutAccount();
+          localStorage.removeItem("verityai_organization_id");
+          localStorage.removeItem("verityai_brand_id");
+          setOrganizationId(null);
+          setBrandId(null);
+          setOrg("");
+          setBrand("");
+          setProducts([]);
+          setAuthStatus("unauthenticated");
+          return;
+        }
+
+        setAuthError(
+          error instanceof Error
+            ? error.message
+            : "Could not verify your authentication session."
+        );
+        setAuthStatus("error");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isPublicRoute, loc.pathname]);
+
+  const handleLogout = () => {
+    logoutAccount();
+    localStorage.removeItem("verityai_organization_id");
+    localStorage.removeItem("verityai_brand_id");
+    setOrganizationId(null);
+    setBrandId(null);
+    setOrg("");
+    setBrand("");
+    setProducts([]);
+    setAuthStatus("unauthenticated");
+    navigate("/login", { replace: true });
+  };
+
+  const decideReview = async (
+    reviewId: number,
+    status: "approved" | "denied"
+  ) => {
+    try {
+      await updateAdvertisementReview(reviewId, status);
+
+      setPendingReviews((previous) =>
+        previous.filter((item) => item.id !== reviewId)
+      );
+
+      if (status === "approved") {
+        const rows = await getApprovedAdvertisements();
+        setApprovedAds(rows);
+      }
+
+      notify(
+        status === "approved"
+          ? "Advertisement approved successfully."
+          : "Advertisement denied successfully."
+      );
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Could not save the review decision."
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || loc.pathname !== "/history") return;
 
     let active = true;
     setHistoryLoading(true);
@@ -223,11 +341,42 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [loc.pathname]);
+  }, [authStatus, loc.pathname]);
 
+  useEffect(() => {
+  if (authStatus !== "authenticated" || loc.pathname !== "/reviews") return;
+
+  let active = true;
+  setReviewLoading(true);
+
+  getPendingAdvertisements()
+    .then((rows) => {
+      if (active) setPendingReviews(rows);
+    })
+    .catch((error) => {
+      console.error("Could not load pending reviews:", error);
+
+      if (active) {
+        notify("Could not load Review Centre items.");
+      }
+    })
+    .finally(() => {
+      if (active) setReviewLoading(false);
+    });
+
+  return () => {
+    active = false;
+  };
+}, [authStatus, loc.pathname]);
 
   useEffect(() => {
     let active = true;
+
+    if (authStatus !== "authenticated") {
+      return () => {
+        active = false;
+      };
+    }
 
     if (!brandId) {
       setProducts([]);
@@ -274,7 +423,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [brandId]);
+  }, [authStatus, brandId]);
 
 
 
@@ -349,6 +498,60 @@ export default function App() {
   };
 
 
+  if (["/", "/login", "/signup", "/register"].includes(loc.pathname)) {
+    return (
+      <Routes>
+        <Route path="/" element={<PublicHome />} />
+        <Route path="/login" element={<AuthPage mode="login" />} />
+        <Route path="/signup" element={<AuthPage mode="signup" />} />
+        <Route path="/register" element={<AuthPage mode="signup" />} />
+      </Routes>
+    );
+  }
+
+  if (!getAuthToken()) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (authStatus === "error") {
+    return (
+      <div className="auth-page">
+        <main className="auth-form-side">
+          <div className="auth-form-wrap">
+            <h2>Could not verify your session</h2>
+            <p className="auth-notice" role="alert">{authError}</p>
+            <button
+              className="public-button auth-submit"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
+            <button
+              className="btn secondary"
+              onClick={handleLogout}
+            >
+              Sign out
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (authStatus !== "authenticated") {
+    return (
+      <div className="auth-page">
+        <main className="auth-form-side">
+          <div className="auth-form-wrap">
+            <p role="status">Verifying your session...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const authUser = getAuthUser();
+
   return (
     <div className="shell">
       <aside className={"sidebar " + (mobile ? "open" : "")}>
@@ -411,9 +614,12 @@ export default function App() {
           <div className="user">
             <div>VA</div>
             <span>
-              <b>Demo Admin</b>
-              <small>Workspace owner</small>
+              <b>{authUser?.full_name || "Workspace user"}</b>
+              <small>{authUser?.email || "Signed in"}</small>
             </span>
+            <button className="btn secondary" onClick={handleLogout}>
+              Sign out
+            </button>
           </div>
         </div>
       </aside>
@@ -446,7 +652,7 @@ export default function App() {
         <div className="content">
           <Routes>
             <Route
-              path="/"
+              path="/app"
               element={
                 <>
                   <Heading
@@ -894,120 +1100,120 @@ export default function App() {
             />
 
 
+          <Route
+  path="/reviews"
+  element={
+    <>
+      <Heading
+        eyebrow="HUMAN OVERSIGHT"
+        title="Review Centre"
+        desc="Inspect AI-flagged advertisements and record human review decisions."
+      />
 
-            <Route
-              path="/reviews"
-              element={
-                <>
-                  <Heading
-                    eyebrow="HUMAN OVERSIGHT"
-                    title="Review Centre"
-                    desc="Inspect findings, supporting evidence, and review decisions."
-                  />
+      <section className="panel">
+        <PanelTitle
+          title="Items requiring review"
+          sub={`${pendingReviews.length} advertisement(s) awaiting a decision`}
+        />
 
-                  <section className="panel">
-                    <PanelTitle
-                      title="Items requiring review"
-                      sub="Demo queue · decisions stored in current session only"
+        {reviewLoading ? (
+          <div className="empty">
+            <p>Loading pending reviews...</p>
+          </div>
+        ) : pendingReviews.length === 0 ? (
+          <div className="empty">
+            <ClipboardCheck size={32} />
+            <b>No items in the review queue</b>
+            <p>
+              High-risk and medium-risk advertisements will appear here
+              after AI analysis.
+            </p>
+            <NavLink to="/governance" className="btn primary">
+              Open Brand Governance
+            </NavLink>
+          </div>
+        ) : (
+          pendingReviews.map((item) => (
+            <article className="finding" key={item.id}>
+              <div className="findingicon">
+                <AlertTriangle />
+              </div>
+
+              <div className="findingbody">
+                <div className="findinghead">
+                  <b>{item.product_name}</b>
+
+                  <div className="finding-tags">
+                    <Badge
+                      text={`${item.risk_level || "Unknown"} risk`}
                     />
+                    <Badge text="Pending review" />
+                  </div>
+                </div>
 
-                    {findings && findings.length > 0 ? (
-                      <>
-                        {findings.map((f, i) => {
-                          const decision = reviewDecisions[i];
+                <p>
+                  <strong>Advertisement:</strong>
+                  <br />
+                  {item.advertisement_text}
+                </p>
 
-                          return (
-                            <div className="finding" key={i}>
-                              <div className="findingicon">
-                                <AlertTriangle />
-                              </div>
+                {item.summary && (
+                  <p>
+                    <strong>AI summary:</strong> {item.summary}
+                  </p>
+                )}
 
-                              <div>
-                                <div className="findinghead">
-                                  <b>{f.title}</b>
+                {item.findings?.map((finding: any, index: number) => (
+                  <div key={index}>
+                    <p>
+                      <strong>{finding.claim_text}</strong>
+                    </p>
+                    <p>{finding.explanation}</p>
 
-                                  <Badge
-                                    text={
-                                      decision?.status === "approved"
-                                        ? "Approved"
-                                        : decision?.status === "changes_requested"
-                                          ? "Changes Requested"
-                                          : "Pending review"
-                                    }
-                                  />
-                                </div>
-
-                                <p>{f.detail}</p>
-
-                                {decision?.comment && (
-                                  <p className="review-comment">
-                                    <b>Reviewer comment:</b> {decision.comment}
-                                  </p>
-                                )}
-
-                                <div className="actions">
-                                  <button
-                                    className="btn secondary"
-                                    disabled={!!decision}
-                                    onClick={() => {
-                                      const comment = window.prompt(
-                                        "Enter the reason for requesting changes:"
-                                      );
-
-                                      if (!comment || !comment.trim()) return;
-
-                                      setReviewDecisions((prev) => ({
-                                        ...prev,
-                                        [i]: {
-                                          status: "changes_requested",
-                                          comment: comment.trim(),
-                                        },
-                                      }));
-
-                                      notify("Changes requested successfully.");
-                                    }}
-                                  >
-                                    Request changes
-                                  </button>
-
-                                  <button
-                                    className="btn primary"
-                                    disabled={!!decision}
-                                    onClick={() => {
-                                      setReviewDecisions((prev) => ({
-                                        ...prev,
-                                        [i]: {
-                                          status: "approved",
-                                        },
-                                      }));
-
-                                      notify("Finding approved successfully.");
-                                    }}
-                                  >
-                                    Approve
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </>
-                    ) : (
-                      <div className="empty">
-                        <ClipboardCheck size={32} />
-                        <b>No items in the review queue</b>
-                        <p>
-                          Run an analysis in Brand Governance to populate this demo view.
-                        </p>
-                        <NavLink to="/governance" className="btn primary">
-                          Open Brand Governance
-                        </NavLink>
-                      </div>
+                    {finding.suggested_correction && (
+                      <p>
+                        <strong>Suggested action:</strong>{" "}
+                        {finding.suggested_correction}
+                      </p>
                     )}
-                  </section>
-                </>
-              }
-            />
+                  </div>
+                ))}
+
+                {item.conclusion && (
+                  <p>
+                    <strong>AI conclusion:</strong> {item.conclusion}
+                  </p>
+                )}
+
+                <small>
+                  Submitted:{" "}
+                  {new Date(item.created_at).toLocaleString()}
+                </small>
+
+                <div className="actions">
+                  <button
+                    className="btn secondary"
+                    onClick={() => decideReview(item.id, "denied")}
+                  >
+                    Deny
+                  </button>
+
+                  <button
+                    className="btn primary"
+                    onClick={() => decideReview(item.id, "approved")}
+                  >
+                    Approve
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+    </>
+  }
+/>
+            
 
             <Route
               path="/history"
@@ -1155,7 +1361,7 @@ export default function App() {
               element={
                 <div className="panel empty">
                   <h2>Page not found</h2>
-                  <NavLink to="/" className="btn primary">
+                  <NavLink to="/app" className="btn primary">
                     Back to dashboard
                   </NavLink>
                 </div>
@@ -1981,7 +2187,6 @@ function KnowledgeBase({
   const visualNotes =
     guidelines?.visual_identity_notes || "";
 
-
   return (
     <>
       <Heading
@@ -2248,3 +2453,282 @@ function KnowledgeBase({
   );
 }
 
+function PublicHome() {
+  return (
+    <div className="public-site">
+      <nav className="public-nav">
+        <NavLink to="/" className="public-brand" aria-label="VerityAI home">
+          <span className="public-brand-mark"><ShieldCheck size={23} /></span>
+          <span>VerityAI</span>
+        </NavLink>
+        <div className="public-nav-links">
+          <a href="#platform">Platform</a>
+          <a href="#features">Features</a>
+          <a href="#workflow">How it works</a>
+        </div>
+        <div className="public-nav-actions">
+          <NavLink to="/login" className="public-login-link">Log in</NavLink>
+          <NavLink to="/signup" className="public-button public-button-small">Get started <ArrowRight size={15} /></NavLink>
+        </div>
+      </nav>
+
+      <main className="public-main">
+        <section className="public-hero" id="platform">
+          <div className="public-hero-copy">
+            <div className="public-eyebrow"><span /> INTELLIGENT BRAND GOVERNANCE</div>
+            <h1>Every brand claim.<br /><em>Grounded in truth.</em></h1>
+            <p className="public-hero-description">
+              VerityAI helps teams review advertising claims against approved product
+              information, identify potential risks, and make confident, evidence-led decisions.
+            </p>
+            <div className="public-hero-actions">
+              <NavLink to="/signup" className="public-button">Start with VerityAI <ArrowRight size={17} /></NavLink>
+              <a href="#workflow" className="public-text-link">Explore how it works <ChevronRight size={16} /></a>
+            </div>
+            <div className="public-trust-line">
+              <span><ShieldCheck size={16} /> Evidence-led checks</span>
+              <i />
+              <span><Users size={16} /> Human oversight</span>
+              <i />
+              <span><FileClock size={16} /> Traceable decisions</span>
+            </div>
+          </div>
+
+          <div className="public-hero-art" aria-label="VerityAI brand verification illustration">
+            <div className="art-orbit orbit-one" />
+            <div className="art-orbit orbit-two" />
+            <div className="art-glow" />
+            <div className="art-shield"><ShieldCheck size={92} strokeWidth={1.35} /></div>
+            <div className="art-float-card art-card-top">
+              <span className="art-card-icon"><CheckCircle2 size={17} /></span>
+              <span><b>Evidence matched</b><small>Reference verified</small></span>
+              <span className="art-status-dot" />
+            </div>
+            <div className="art-float-card art-card-bottom">
+              <span className="art-card-icon art-card-blue"><ScanSearch size={17} /></span>
+              <span><b>Claim analysis</b><small>Review with context</small></span>
+              <ArrowRight size={16} className="art-card-arrow" />
+            </div>
+            <div className="art-spark spark-one">✦</div>
+            <div className="art-spark spark-two">✧</div>
+          </div>
+        </section>
+
+        <section className="public-intro">
+          <div>
+            <span className="public-section-label">BUILT FOR BRAND CONFIDENCE</span>
+            <h2>Clarity behind every<br />marketing message.</h2>
+          </div>
+          <p>
+            From product facts to final advertisements, VerityAI brings your
+            approved information and review process into one clear workspace.
+            Make decisions with context instead of guesswork.
+          </p>
+        </section>
+
+        <section className="public-features" id="features">
+          <div className="public-section-heading">
+            <span className="public-section-label">THE PLATFORM</span>
+            <h2>Governance that works<br />at every step.</h2>
+          </div>
+          <div className="public-feature-grid">
+            <article className="public-feature-card">
+              <span className="public-feature-icon"><ScanSearch size={22} /></span>
+              <span className="feature-number">01 / ANALYSE</span>
+              <h3>AI-powered verification</h3>
+              <p>Compare advertisement statements with approved product facts, claims and brand guidelines.</p>
+            </article>
+            <article className="public-feature-card">
+              <span className="public-feature-icon"><ShieldCheck size={22} /></span>
+              <span className="feature-number">02 / IDENTIFY</span>
+              <h3>Risk awareness</h3>
+              <p>Surface unsupported claims and potential conflicts so attention goes where it matters.</p>
+            </article>
+            <article className="public-feature-card">
+              <span className="public-feature-icon"><ClipboardCheck size={22} /></span>
+              <span className="feature-number">03 / REVIEW</span>
+              <h3>Human decisions</h3>
+              <p>Send flagged content to a review queue where an authorised person can approve or deny it.</p>
+            </article>
+            <article className="public-feature-card">
+              <span className="public-feature-icon"><FileClock size={22} /></span>
+              <span className="feature-number">04 / RECORD</span>
+              <h3>Verification history</h3>
+              <p>Keep approved outcomes and review decisions accessible in a traceable record.</p>
+            </article>
+          </div>
+        </section>
+
+        <section className="public-workflow" id="workflow">
+          <div className="workflow-copy">
+            <span className="public-section-label">A CLEARER PROCESS</span>
+            <h2>From first draft<br />to confident decision.</h2>
+            <p>One connected workflow keeps AI assistance and human accountability in balance.</p>
+            <NavLink to="/signup" className="public-inline-link">Explore VerityAI <ArrowRight size={16} /></NavLink>
+          </div>
+          <div className="workflow-steps">
+            <div className="workflow-step"><span>01</span><div><b>Submit content</b><small>Add an advertisement and select its product.</small></div><FileText size={20} /></div>
+            <div className="workflow-step"><span>02</span><div><b>Analyse against evidence</b><small>AI checks the content against approved references.</small></div><Sparkles size={20} /></div>
+            <div className="workflow-step"><span>03</span><div><b>Review when required</b><small>Flagged items wait for a human decision.</small></div><Users size={20} /></div>
+            <div className="workflow-step"><span>04</span><div><b>Keep the record</b><small>Approved content appears in verification history.</small></div><CheckCircle2 size={20} /></div>
+          </div>
+        </section>
+
+        <section className="public-cta">
+          <div><span className="public-section-label">MAKE EVERY CLAIM COUNT</span><h2>Bring confidence to your<br />brand governance.</h2></div>
+          <NavLink to="/signup" className="public-button public-button-light">Get started with VerityAI <ArrowRight size={17} /></NavLink>
+        </section>
+      </main>
+
+      <footer className="public-footer">
+        <NavLink to="/" className="public-brand"><span className="public-brand-mark"><ShieldCheck size={20} /></span><span>VerityAI</span></NavLink>
+        <span>Evidence-led brand governance.</span>
+        <div><NavLink to="/login">Log in</NavLink><NavLink to="/signup">Create account</NavLink></div>
+        <small>© 2026 VerityAI. All rights reserved.</small>
+      </footer>
+    </div>
+  );
+}
+
+function AuthPage({ mode }: { mode: "login" | "signup" }) {
+  const navigate = useNavigate();
+  const isSignup = mode === "signup";
+  const [showPassword, setShowPassword] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [accepted, setAccepted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (isSignup && !accepted) {
+      setNotice("Please accept the terms to continue.");
+      return;
+    }
+
+    const formData = new FormData(event.currentTarget);
+    const password = String(formData.get("password") ?? "");
+
+    if (
+      isSignup &&
+      password !== String(formData.get("confirm_password") ?? "")
+    ) {
+      setNotice("Passwords do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+    setNotice("");
+
+    try {
+      if (isSignup) {
+        await registerAccount({
+          full_name: String(formData.get("full_name") ?? ""),
+          email: String(formData.get("email") ?? ""),
+          password,
+          organization_name: String(
+            formData.get("organization_name") ?? ""
+          ),
+          primary_brand_name: String(
+            formData.get("primary_brand_name") ?? ""
+          ),
+          industry: String(formData.get("industry") ?? ""),
+          country_market: String(formData.get("country_market") ?? ""),
+        });
+      } else {
+        await loginAccount({
+          email: String(formData.get("email") ?? ""),
+          password,
+        });
+      }
+
+      navigate("/app", { replace: true });
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "Authentication failed. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (isAuthenticated()) {
+    return <Navigate to="/app" replace />;
+  }
+
+  return (
+    <div className="auth-page">
+      <aside className="auth-brand-panel">
+        <NavLink to="/" className="public-brand auth-brand">
+          <span className="public-brand-mark"><ShieldCheck size={23} /></span><span>VerityAI</span>
+        </NavLink>
+        <div className="auth-brand-message">
+          <span className="public-eyebrow"><span /> TRUST, WITH TRACEABILITY</span>
+          <h1>{isSignup ? "Build a more confident way to govern your brand." : "Good to have you back."}</h1>
+          <p>{isSignup
+            ? "Bring product evidence, AI-powered checks and human review together in one workspace."
+            : "Continue reviewing claims, managing evidence and keeping every brand decision accountable."}</p>
+          <div className="auth-promise-list">
+            <span><CheckCircle2 size={17} /> Evidence-led verification</span>
+            <span><CheckCircle2 size={17} /> Human review when needed</span>
+            <span><CheckCircle2 size={17} /> Clear decision history</span>
+          </div>
+        </div>
+        <div className="auth-panel-bottom">VERITYAI <span>·</span> BRAND GOVERNANCE</div>
+        <div className="auth-decoration auth-decoration-one" />
+        <div className="auth-decoration auth-decoration-two" />
+      </aside>
+
+      <main className="auth-form-side">
+        <div className="auth-mobile-brand"><NavLink to="/" className="public-brand"><span className="public-brand-mark"><ShieldCheck size={22} /></span><span>VerityAI</span></NavLink></div>
+        <NavLink to="/" className="auth-back"><ArrowRight size={15} /> Back to home</NavLink>
+        <div className="auth-form-wrap">
+          <span className="public-section-label">{isSignup ? "GET STARTED" : "WELCOME BACK"}</span>
+          <h2>{isSignup ? "Create your account" : "Sign in to VerityAI"}</h2>
+          <p className="auth-subtitle">{isSignup ? "Set up your workspace and bring your brand governance together." : "Enter your details to access your workspace."}</p>
+
+          <form className="auth-form" onSubmit={handleSubmit}>
+            {isSignup && <label>Full name<input type="text" name="full_name" placeholder="Your full name" autoComplete="name" minLength={2} required /></label>}
+            <label>Work email<input type="email" name="email" placeholder="you@company.com" autoComplete="email" required /></label>
+            {isSignup && <label>Organization name<input type="text" name="organization_name" placeholder="Your organization" autoComplete="organization" minLength={2} required /></label>}
+            {isSignup && <label>Primary brand name<input type="text" name="primary_brand_name" placeholder="Your primary brand" minLength={2} required /></label>}
+            {isSignup && <label>Industry
+              <select name="industry" defaultValue="Food & Beverage" required>
+                <option>Food &amp; Beverage</option>
+                <option>Consumer goods</option>
+                <option>Healthcare</option>
+                <option>Technology</option>
+                <option>Retail &amp; e-commerce</option>
+                <option>Other</option>
+              </select>
+            </label>}
+            {isSignup && <label>Country / market
+              <select name="country_market" defaultValue="India" required>
+                <option>India</option>
+                <option>United States</option>
+                <option>United Kingdom</option>
+                <option>Multiple markets</option>
+              </select>
+            </label>}
+            <label>Password
+              <div className="password-field"><input type={showPassword ? "text" : "password"} name="password" placeholder={isSignup ? "Create a password" : "Enter your password"} autoComplete={isSignup ? "new-password" : "current-password"} minLength={8} maxLength={128} required /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? "Hide" : "Show"}</button></div>
+            </label>
+            {isSignup && <label>Confirm password<input type="password" name="confirm_password" placeholder="Re-enter your password" autoComplete="new-password" minLength={8} maxLength={128} required /></label>}
+            {isSignup ? (
+              <label className="auth-terms"><input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /> <span>I agree to the Terms of Service and Privacy Policy.</span></label>
+            ) : (
+              <div className="auth-options"><label className="auth-remember"><input type="checkbox" /> Remember me</label><button type="button" className="auth-forgot" onClick={() => setNotice("Password reset is not available yet.")}>Forgot password?</button></div>
+            )}
+            <button className="public-button auth-submit" type="submit" disabled={submitting}>{submitting ? "Please wait..." : isSignup ? "Create account" : "Sign in"} <ArrowRight size={17} /></button>
+            {notice && <p className="auth-notice" role="status">{notice}</p>}
+          </form>
+
+          <p className="auth-switch">{isSignup ? "Already have an account?" : "New to VerityAI?"} <NavLink to={isSignup ? "/login" : "/signup"}>{isSignup ? "Log in" : "Create an account"}</NavLink></p>
+        </div>
+        <div className="auth-security-note"><LockKeyhole size={14} /> Secure access to your brand governance workspace</div>
+      </main>
+    </div>
+  );
+}

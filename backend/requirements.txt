@@ -9,3 +9,5 @@ python-dotenv
 pypdf
 openai
 google-genai
+python-jose[cryptography]
+pwdlib[argon2]

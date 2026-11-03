@@ -1,10 +1,17 @@
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.document import Document
+    from app.models.guideline import BrandGuideline
+    from app.models.product import Product
+    from app.models.user import User
 
 
 class Organization(Base):
@@ -23,6 +30,12 @@ class Organization(Base):
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -39,6 +52,9 @@ class Organization(Base):
     brands: Mapped[list["Brand"]] = relationship(
         back_populates="organization",
         cascade="all, delete-orphan",
+    )
+    owner: Mapped["User | None"] = relationship(
+        "User", back_populates="organization", uselist=False
     )
 
 

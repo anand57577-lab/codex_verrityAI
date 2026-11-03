@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.api.routes.auth import router as auth_router
 from app.api.routes.organizations import router as organizations_router
 from app.api.routes.gudielines import router as guidelines_router
 from app.api.routes.products import router as products_router
@@ -33,7 +33,7 @@ app.include_router(guidelines_router)
 app.include_router(products_router)
 app.include_router(documents_router)
 app.include_router(governance_router)
-
+app.include_router(auth_router)
 
 @app.on_event("startup")
 def validate_runtime_configuration() -> None:
