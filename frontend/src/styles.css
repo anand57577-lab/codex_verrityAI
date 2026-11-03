@@ -2001,6 +2001,16 @@ footer {
 .auth-notice { margin: -4px 0 0; padding: 11px 12px; border: 1px solid #dce7f7; border-radius: 8px; color: #315b96; background: #f2f7ff; font-size: 10px; line-height: 1.6; }
 .auth-switch { margin-top: 25px; text-align: center; color: #7b8798; font-size: 11px; }
 .auth-switch a { color: #315eb5; font-weight: 800; }
+.demo-credentials { margin-top: 24px; padding: 18px 20px; border: 1px solid #dce7f7; border-radius: 12px; background: linear-gradient(135deg, #f8fbff, #f1f6ff); }
+.demo-credentials h3 { margin: 0; color: #233a5c; font: 800 14px Manrope; }
+.demo-credentials-hint { margin: 5px 0 15px; color: #75849a; font-size: 10px; line-height: 1.5; }
+.demo-credentials dl { display: grid; gap: 10px; margin: 0; }
+.demo-credentials dl > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.demo-credentials dt { color: #728198; font-size: 10px; font-weight: 700; }
+.demo-credentials dd { margin: 0; color: #263d60; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.demo-credentials a { color: inherit; text-decoration: none; }
+.demo-credentials a:hover { color: #315eb5; text-decoration: underline; }
+.demo-credentials dd span { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .auth-security-note { display: flex; align-items: center; justify-content: center; gap: 7px; color: #9aa5b4; font-size: 9px; }
 .auth-mobile-brand { display: none; }
 
@@ -2052,5 +2062,6 @@ footer {
   .auth-back { top: 34px; right: 23px; font-size: 0; }
   .auth-form-wrap { margin: 0 auto 35px; }
   .auth-form-wrap h2 { font-size: 27px; }
+  .demo-credentials { padding: 16px; }
   .auth-security-note { margin-top: auto; }
 }

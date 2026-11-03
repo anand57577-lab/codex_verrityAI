@@ -2725,6 +2725,22 @@ function AuthPage({ mode }: { mode: "login" | "signup" }) {
           </form>
 
           <p className="auth-switch">{isSignup ? "Already have an account?" : "New to VerityAI?"} <NavLink to={isSignup ? "/login" : "/signup"}>{isSignup ? "Log in" : "Create an account"}</NavLink></p>
+          {!isSignup && (
+            <section className="demo-credentials" aria-labelledby="demo-credentials-title">
+              <h3 id="demo-credentials-title">Demo Login Credentials</h3>
+              <p className="demo-credentials-hint">Use these credentials to explore the VerityAI demo.</p>
+              <dl>
+                <div>
+                  <dt>Email</dt>
+                  <dd><a href="mailto:verityai@gmail.com">verityai@gmail.com</a></dd>
+                </div>
+                <div>
+                  <dt>Password</dt>
+                  <dd><span>verityai@2026</span></dd>
+                </div>
+              </dl>
+            </section>
+          )}
         </div>
         <div className="auth-security-note"><LockKeyhole size={14} /> Secure access to your brand governance workspace</div>
       </main>
