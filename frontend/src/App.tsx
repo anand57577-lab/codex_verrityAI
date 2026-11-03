@@ -19,7 +19,6 @@ import {
   listDocuments,
   getGuidelines,
   analyzeAdvertisement,
-  getOrganization,
   buildDocumentDownloadUrl,
   getApprovedAdvertisements,
   getPendingAdvertisements,
@@ -1598,7 +1597,7 @@ function Admin({
 
       // Create when database is empty; update otherwise.
       const result = organizationId
-        ? await updateOrganization(organizationId, payload)
+        ? await updateOrganization(payload)
         : await createOrganization(payload);
 
       if (!result?.id || !result?.brand_id) {

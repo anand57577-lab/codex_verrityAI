@@ -5,9 +5,14 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.organization import Organization, Brand
-from app.schemas.organization import OrganizationUpdate, OrganizationResponse
+from app.schemas.organization import (
+    OrganizationCreate,
+    OrganizationUpdate,
+    OrganizationResponse,
+)
 
 router = APIRouter(prefix="/api/organizations", tags=["Organizations"])
+
 
 def build_response(db: Session, organization: Organization):
     brand = (
@@ -25,6 +30,47 @@ def build_response(db: Session, organization: Organization):
         country_market=organization.country_market,
         description=organization.description,
     )
+
+@router.post(
+    "",
+    response_model=OrganizationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_organization(
+    payload: OrganizationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    organization = (
+        db.query(Organization)
+        .filter(Organization.owner_user_id == current_user.id)
+        .first()
+    )
+    if organization is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An organization already exists for this user.",
+        )
+
+    organization = Organization(
+        legal_name=payload.legal_name,
+        industry=payload.industry,
+        country_market=payload.country_market,
+        description=payload.description,
+        owner_user_id=current_user.id,
+    )
+    db.add(organization)
+    db.flush()
+    db.add(
+        Brand(
+            organization_id=organization.id,
+            name=payload.primary_brand_name,
+        )
+    )
+    db.commit()
+    db.refresh(organization)
+    return build_response(db, organization)
+
 
 @router.get("/current", response_model=OrganizationResponse | None)
 def get_current_organization(

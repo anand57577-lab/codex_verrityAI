@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     APP_ENV: str = "development"
-    FRONTEND_URLS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    FRONTEND_URL: str = ""
     DATABASE_URL: str = ""
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.0-flash"
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     def frontend_origins(self) -> list[str]:
         return [
             origin.strip().rstrip("/")
-            for origin in self.FRONTEND_URLS.split(",")
+            for origin in self.FRONTEND_URL.split(",")
             if origin.strip()
         ]
 
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
             )
         if env_name == "production" and not self.frontend_origins:
             raise RuntimeError(
-                "FRONTEND_URLS must include the deployed frontend origin when APP_ENV=production."
+                "FRONTEND_URL must include the deployed frontend origin when APP_ENV=production."
             )
 
 

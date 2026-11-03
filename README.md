@@ -352,7 +352,7 @@ VerityAI/
 │   │   └── main.py
 │   │
 │   ├── requirements.txt
-│   ├── .env
+│   ├── .env.example
 │   └── test_gemini.py
 │
 ├── frontend/
@@ -424,20 +424,20 @@ pip install google-genai
 
 ### Step 3: Configure Environment Variables
 
-Create a `.env` file inside the backend directory.
-
-Add your actual PostgreSQL and Gemini configuration.
+Create a `.env` file inside the backend directory, starting from `backend/.env.example`.
 
 Example:
 
 ```env
-DATABASE_URL=postgresql+psycopg://USERNAME:PASSWORD@localhost:5432/verityai
-
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
-GEMINI_MODEL=YOUR_AVAILABLE_GEMINI_MODEL
+APP_ENV=development
+FRONTEND_URL=http://localhost:5173
+DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>:5432/<database>
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.0-flash
+JWT_SECRET_KEY=
 ```
 
-Replace the example values with your actual configuration.
+Replace placeholders with your actual configuration. Generate a unique `JWT_SECRET_KEY` for each environment.
 
 Do not commit `.env` to GitHub.
 
@@ -493,6 +493,8 @@ Open a second terminal:
 cd frontend
 ```
 
+Copy `.env.example` to `.env.local` and set `VITE_API_BASE_URL` to the backend API's base URL.
+
 Install dependencies:
 
 ```bash
@@ -519,17 +521,21 @@ From the backend directory, run the Gemini connection test:
 python test_gemini.py
 ```
 
-Expected output:
+Expected output includes:
 
 ```text
-VerityAI Gemini connection successful.
+Testing Gemini...
+Model: gemini-2.0-flash
+SUCCESS
+Response: <generated response>
+Time taken: <seconds> seconds
 ```
 
 This verifies the standalone Gemini API connection. The advertisement analysis endpoint must be tested separately.
 
 ## 11. Environment Configuration
 
-The backend requires environment variables for database access, Gemini integration, and other application settings.
+The backend and frontend use environment variables for database access, Gemini integration, CORS, and API routing.
 
 | Variable | Purpose |
 |---|---|
@@ -537,6 +543,9 @@ The backend requires environment variables for database access, Gemini integrati
 | GEMINI_API_KEY | Google Gemini API authentication |
 | GEMINI_MODEL | Gemini model identifier |
 | FRONTEND_URL | Deployed frontend origin, where used by backend CORS configuration |
+| APP_ENV | Set to `production` for a deployed backend |
+| JWT_SECRET_KEY | Secret used to sign authentication tokens |
+| VITE_API_BASE_URL | Frontend build-time backend API base URL |
 
 Additional variables may be required by your authentication, configuration, and deployment implementation.
 
@@ -697,8 +706,8 @@ VerityAI can be deployed using separate hosting services.
 1. Push the frontend project to GitHub.
 2. Import the repository into Vercel.
 3. Configure the frontend root directory.
-4. Configure the Vite build command.
-5. Add the production backend API URL.
+4. Configure the Vite build command as `npm run build`.
+5. Set `VITE_API_BASE_URL` to the deployed backend's base URL.
 6. Deploy the application.
 
 ### Backend Deployment
@@ -707,7 +716,7 @@ VerityAI can be deployed using separate hosting services.
 2. Configure the backend root directory.
 3. Install dependencies.
 4. Configure the Uvicorn start command.
-5. Add production environment variables.
+5. Set `APP_ENV=production`, `DATABASE_URL`, `FRONTEND_URL`, `GEMINI_API_KEY`, `GEMINI_MODEL`, and a unique `JWT_SECRET_KEY`.
 6. Deploy the FastAPI service.
 
 Example start command when the entry point is `backend/app/main.py`:

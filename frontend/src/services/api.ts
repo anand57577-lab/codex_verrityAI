@@ -1,6 +1,4 @@
 
-const FALLBACK_API_BASE_URL = "http://127.0.0.1:8000";
-
 const AUTH_TOKEN_KEY = "verityai_access_token";
 const AUTH_USER_KEY = "verityai_user";
 
@@ -8,24 +6,19 @@ function normalizeApiBaseUrl(value?: string): string {
   const configured = (value ?? "").trim();
 
   if (!configured) {
-    if (import.meta.env.PROD) {
-      console.warn(
-        "VITE_API_BASE_URL is missing. Using the local development fallback until the deployed backend URL is configured.",
-      );
-    }
-    return FALLBACK_API_BASE_URL;
+    throw new Error("VITE_API_BASE_URL must be configured.");
   }
 
   try {
     const url = new URL(configured);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Unsupported API URL protocol.");
+    }
     return url.origin.replace(/\/+$/, "");
   } catch {
-    if (import.meta.env.PROD) {
-      console.warn(
-        `VITE_API_BASE_URL is invalid: "${configured}". Update it to a valid backend URL before deployment.`,
-      );
-    }
-    return FALLBACK_API_BASE_URL;
+    throw new Error(
+      "VITE_API_BASE_URL must be an absolute HTTP or HTTPS backend URL.",
+    );
   }
 }
 
@@ -246,12 +239,6 @@ export async function createOrganization(
   });
 }
 
-export async function getOrganization(
-  id: number,
-): Promise<OrganizationResponse> {
-  return request<OrganizationResponse>(`/api/organizations/${id}`);
-}
-
 export async function getCurrentOrganization(): Promise<OrganizationResponse | null> {
   return request<OrganizationResponse | null>(
     "/api/organizations/current",
@@ -259,10 +246,9 @@ export async function getCurrentOrganization(): Promise<OrganizationResponse | n
 }
 
 export async function updateOrganization(
-  id: number,
   payload: Partial<OrganizationPayload>,
 ): Promise<OrganizationResponse> {
-  return request<OrganizationResponse>(`/api/organizations/${id}`, {
+  return request<OrganizationResponse>("/api/organizations/current", {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
