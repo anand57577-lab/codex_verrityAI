@@ -1321,12 +1321,12 @@ export default function App() {
                       />
                       <Detail label="Organisation" value={org} />
                       <Detail label="Primary brand" value={brand} />
-                      <Detail label="Authentication" value="Not implemented" />
+                      <Detail label="Authentication" value="implemented" />
                       <Detail
-                        label="PostgreSQL database"
-                        value="FastAPI + PostgreSQL"
+                        label="Workspace Status"
+                        value="Active"
                       />
-                      <Detail label="LLM / RAG" value="Planned" />
+                      <Detail label="AI Review Engine" value="Enabled" />
                     </section>
                     <section className="panel">
                       <PanelTitle
